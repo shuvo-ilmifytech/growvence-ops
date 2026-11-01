@@ -1,0 +1,10 @@
+.env
+node_modules/
+.next/
+/backend/bin/
+*.log
+e2e/node_modules/
+qa-report.json
+.api.log
+.web.log
+.playwright-mcp/
