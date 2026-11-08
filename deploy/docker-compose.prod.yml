@@ -1,0 +1,83 @@
+# Production overlay. Use together with the base file, from the repo root:
+#
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml \
+#                  --profile app up -d --build
+#
+# The internal services are NOT redefined here: the base file publishes their
+# ports through ${POSTGRES_PORT} etc., and .env on the server sets those to
+# 127.0.0.1:<port>, so they listen on loopback only. That matters because Docker
+# writes its own iptables rules and a published port would otherwise bypass ufw.
+services:
+  caddy:
+    # Same profile as api/web: without it, `compose` sees a caddy whose
+    # depends_on names services that are not in the project view, and refuses
+    # the whole file with "depends on undefined service".
+    profiles: [app]
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"     # HTTP/3
+      # Object storage. Used while FILES_SITE is on a port (the interim, no-DNS
+      # setup); harmless once FILES_SITE is a real hostname on 443. Deliberately
+      # NOT 9010, which MinIO itself binds on loopback.
+      - "9443:9443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data    # ACME account + certificates; must persist
+      - caddyconfig:/config
+    environment:
+      APP_SITE: ${APP_SITE:?APP_SITE is required}
+      FILES_SITE: ${FILES_SITE:?FILES_SITE is required}
+    depends_on: [web, api, minio]
+
+  api:
+    restart: unless-stopped
+
+  web:
+    restart: unless-stopped
+
+  # TURN relay for voice calls, for browsers whose networks won't connect
+  # directly (mobile data, strict office NATs). Host networking, so coturn sees
+  # the public IP and the relay ports need no Docker port mapping; ufw must
+  # therefore allow 3478/udp+tcp and the relay range below (see README).
+  # The api hands browsers TURN_URL / TURN_USERNAME / TURN_PASSWORD, which must
+  # match the user set here.
+  turn:
+    profiles: [app]
+    image: coturn/coturn:4.7
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --listening-port=3478
+      - --external-ip=${TURN_EXTERNAL_IP:?TURN_EXTERNAL_IP is required}
+      - --realm=${TURN_REALM:?TURN_REALM is required}
+      - --lt-cred-mech
+      - --user=${TURN_USERNAME:?TURN_USERNAME is required}:${TURN_PASSWORD:?TURN_PASSWORD is required}
+      - --min-port=49160
+      - --max-port=49200
+      - --fingerprint
+      - --no-tls
+      - --no-dtls
+      - --no-cli
+      - --no-multicast-peers
+      # Never relay into loopback or a private network: Postgres, Redis and
+      # MinIO listen on loopback, and an open relay would reach them. The public
+      # IP stays allowed: two callers who both need the relay talk through it.
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+      - --denied-peer-ip=::1
+      - --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      - --denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      - --log-file=stdout
+      - --simple-log
+
+volumes:
+  caddydata:
+  caddyconfig:

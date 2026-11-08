@@ -1,0 +1,8 @@
+[Unit]
+Description=Growvence Ops backup (Postgres dump + MinIO objects)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/srv/growvence-ops/deploy/backup.sh

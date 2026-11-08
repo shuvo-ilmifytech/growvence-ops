@@ -1,0 +1,11 @@
+{
+  "name": "opsflow-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "qa": "node qa.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.58.0"
+  }
+}

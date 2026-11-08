@@ -1,0 +1,139 @@
+version: "2"
+sql:
+  - engine: postgresql
+    schema: migrations
+    queries: internal/db/queries
+    gen:
+      go:
+        package: db
+        out: internal/db
+        sql_package: pgx/v5
+        emit_json_tags: true
+        json_tags_case_style: snake
+        emit_pointers_for_null_types: true
+        emit_empty_slices: true
+        rename:
+          member_ids: MemberIDs
+          request_member_ids: RequestMemberIDs
+          assignee_ids: AssigneeIDs
+          project_member_ids: ProjectMemberIDs
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type: { import: github.com/google/uuid, type: UUID, pointer: true }
+          - db_type: citext
+            go_type: string
+          - db_type: citext
+            nullable: true
+            go_type: { type: string, pointer: true }
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type: { import: time, type: Time, pointer: true }
+          - db_type: jsonb
+            go_type: encoding/json.RawMessage
+          - column: users.password_hash
+            go_struct_tag: json:"-"
+          - column: project_details.profile_name
+            go_type: { type: string, pointer: true }
+          - column: project_details.project_type_name
+            go_type: { type: string, pointer: true }
+          - column: project_details.budget
+            go_type: { type: string, pointer: true }
+          - column: project_details.agreed_price
+            go_type: { type: string, pointer: true }
+          - column: project_details.start_date
+            go_type: { type: string, pointer: true }
+          - column: project_details.deadline
+            go_type: { type: string, pointer: true }
+          - column: project_details.due_date
+            go_type: { type: string, pointer: true }
+          - column: project_details.effective_due
+            go_type: { type: string, pointer: true }
+          - column: project_details.team_name
+            go_type: { type: string, pointer: true }
+          - column: project_details.team_lead_id
+            go_type: { import: github.com/google/uuid, type: UUID, pointer: true }
+          - column: update_details.project_team_lead_id
+            go_type: { import: github.com/google/uuid, type: UUID, pointer: true }
+          # A client request's update takes these from the request, which coalesce hides,
+          # but a project with no team still has none of them.
+          - column: update_details.project_team_id
+            go_type: { import: github.com/google/uuid, type: UUID, pointer: true }
+          - column: update_details.project_team_head_id
+            go_type: { import: github.com/google/uuid, type: UUID, pointer: true }
+          - column: project_details.member_ids
+            go_type: { import: github.com/google/uuid, type: UUID, slice: true }
+          - column: update_details.project_member_ids
+            go_type: { import: github.com/google/uuid, type: UUID, slice: true }
+          - column: card_details.due_date
+            go_type: { type: string, pointer: true }
+          - column: card_details.assignee_ids
+            go_type: { import: github.com/google/uuid, type: UUID, slice: true }
+          - column: project_details.number
+            go_type: int64
+          - column: update_details.profile_name
+            go_type: { type: string, pointer: true }
+          - column: update_details.checked_by_name
+            go_type: { type: string, pointer: true }
+          - column: update_details.sent_by_name
+            go_type: { type: string, pointer: true }
+          - column: update_details.order_id
+            go_type: { type: string, pointer: true }
+          - column: update_details.client_name
+            go_type: { type: string, pointer: true }
+          - column: update_details.project_name
+            go_type: { type: string, pointer: true }
+          - column: update_details.number
+            go_type: int64
+          - column: update_details.project_number
+            go_type: int64
+          - column: updates.number
+            go_type: int64
+          - column: projects.number
+            go_type: int64
+          - column: employee_details.employee_code
+            go_type: { type: string, pointer: true }
+          - column: employee_details.department_name
+            go_type: { type: string, pointer: true }
+          - column: employee_details.join_date
+            go_type: { type: string, pointer: true }
+          - column: employee_details.date_of_birth
+            go_type: { type: string, pointer: true }
+          - column: leave_request_details.manager_reviewed_by
+            go_type: { import: github.com/google/uuid, type: UUID, pointer: true }
+          - column: leave_request_details.manager_reviewed_by_name
+            go_type: { type: string, pointer: true }
+          - column: leave_request_details.manager_reviewed_at
+            go_type: { import: time, type: Time, pointer: true }
+          - column: employee_details.shift_name
+            go_type: { type: string, pointer: true }
+          - column: employee_details.shift_id
+            go_type: { import: github.com/google/uuid, type: UUID, pointer: true }
+          - column: invoices.number
+            go_type: int64
+          - column: invoice_details.number
+            go_type: int64
+          - column: activity_log.id
+            go_type: int64
+          # A card always has a container (a project or a client request), and a client
+          # request always has a number: the views can't prove it, so say so here.
+          - column: project_cards.container_id
+            go_type: github.com/google/uuid.UUID
+          - column: card_details.container_id
+            go_type: github.com/google/uuid.UUID
+          - column: client_requests.number
+            go_type: int64
+          - column: client_request_details.number
+            go_type: int64
+          - column: client_request_details.member_ids
+            go_type: { import: github.com/google/uuid, type: UUID, slice: true }
+          # B2B (Phase 5): the read views cast nullable dates to text; the
+          # overrides keep them *string so a NULL date scans cleanly.
+          - column: contract_details.end_date
+            go_type: { type: string, pointer: true }
+          - column: retainer_details.next_billing_date
+            go_type: { type: string, pointer: true }

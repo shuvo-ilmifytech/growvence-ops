@@ -8,3 +8,4 @@ qa-report.json
 .api.log
 .web.log
 .playwright-mcp/
+/*.png

@@ -70,6 +70,18 @@ func run() error {
 	go jobs.Run(ctx, rdb, svc, time.Minute)
 	// A call nobody picked up stops ringing by itself.
 	go jobs.RunLocked(ctx, rdb, "jobs:calls:lock", "missed call sweep", 15*time.Second, chatSvc.ExpireRinging)
+	// Recurring tasks: create scheduled board cards once an hour.
+	go jobs.RunLocked(ctx, rdb, "jobs:recurring:lock", "recurring tasks", time.Hour, func(ctx context.Context) error {
+		return httpapi.ProcessDueRecurringTasks(ctx, st.Pool)
+	})
+	// Milestone payments: auto-invoice due milestones + mark overdue, once a day.
+	go jobs.RunLocked(ctx, rdb, "jobs:milestones:lock", "milestone payments", 24*time.Hour, func(ctx context.Context) error {
+		return httpapi.ProcessDueMilestones(ctx, st.Pool)
+	})
+	// Retainer billing: auto-invoice due retainers + advance billing, once a day.
+	go jobs.RunLocked(ctx, rdb, "jobs:retainers:lock", "retainer billing", 24*time.Hour, func(ctx context.Context) error {
+		return httpapi.ProcessDueRetainers(ctx, st.Pool)
+	})
 	if backup != nil {
 		slog.Info("google sheet backup on", "every", cfg.SheetsEvery)
 		go jobs.RunLocked(ctx, rdb, "jobs:sheets:lock", "google sheet backup", cfg.SheetsEvery, func(ctx context.Context) error {

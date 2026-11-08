@@ -1,0 +1,108 @@
+name: opsflow
+
+# Local development:  docker compose up -d postgres redis minio   (then run api/web natively)
+# Full stack:         docker compose --profile app up -d --build
+#                     docker compose --profile cli run --rm api-cli seed-dev   (demo users)
+
+x-api-env: &api-env
+  DATABASE_URL: postgres://opsflow:${POSTGRES_PASSWORD:-opsflow}@postgres:5432/opsflow?sslmode=disable
+  REDIS_URL: redis://redis:6379/0
+  APP_ORIGINS: ${APP_ORIGINS:-http://localhost:3000}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  S3_ENDPOINT: minio:9000
+  # What browsers use for presigned upload/download URLs.
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-localhost:9010}
+  S3_PUBLIC_SSL: ${S3_PUBLIC_SSL:-false}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-opsflow}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:-opsflow-secret}
+  S3_BUCKET: ${S3_BUCKET:-opsflow}
+  # Largest file a browser may upload (projects, updates, cards, chat), in MB.
+  # Files go straight to storage; Caddy's FILES_SITE limit must stay above this.
+  MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-1024}
+  # Google Sheet backup (optional). Leave SHEETS_SPREADSHEET_ID empty to switch it off.
+  SHEETS_SPREADSHEET_ID: ${SHEETS_SPREADSHEET_ID:-}
+  SHEETS_TAB: ${SHEETS_TAB:-Projects}
+  SHEETS_SYNC_EVERY: ${SHEETS_SYNC_EVERY:-30s}
+  GOOGLE_SERVICE_ACCOUNT_FILE: ${GOOGLE_SERVICE_ACCOUNT_FILE:+/run/secrets/google-service-account.json}
+  # Voice calls: a TURN relay for networks that won't allow a direct path.
+  STUN_URLS: ${STUN_URLS:-stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302}
+  TURN_URL: ${TURN_URL:-}
+  TURN_USERNAME: ${TURN_USERNAME:-}
+  TURN_PASSWORD: ${TURN_PASSWORD:-}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: opsflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opsflow}
+      POSTGRES_DB: opsflow
+    ports: ["${POSTGRES_PORT:-5442}:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opsflow"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["${REDIS_PORT:-6390}:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  minio:
+    # MinIO stopped publishing community images; this is the Coolify community rebuild.
+    image: ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-opsflow}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-opsflow-secret}
+    ports: ["${MINIO_PORT:-9010}:9000", "${MINIO_CONSOLE_PORT:-9011}:9001"]
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 10
+
+  api:
+    profiles: [app]
+    build: ./backend
+    environment: *api-env
+    ports: ["${API_PORT:-8080}:8080"]
+    volumes:
+      # The service-account key, when the Google Sheet backup is used.
+      - ${GOOGLE_SERVICE_ACCOUNT_FILE:-/dev/null}:/run/secrets/google-service-account.json:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_started }
+    restart: unless-stopped
+
+  # One-off admin commands (never started by `up`):
+  #   docker compose --profile cli run --rm api-cli create-admin -email you@company.com
+  api-cli:
+    profiles: [cli]
+    build: ./backend
+    entrypoint: ["/usr/local/bin/opsctl"]
+    environment: *api-env
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  web:
+    profiles: [app]
+    build:
+      context: ./frontend
+      args:
+        API_INTERNAL_URL: http://api:8080
+    ports: ["${WEB_PORT:-3000}:3000"]
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

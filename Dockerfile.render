@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+# Growvence Ops — combined image for Render (ONE free web service).
+# Runs the Go API on :8080 and the Next.js standalone server on $PORT
+# (Render injects PORT) in a single container. The browser only ever talks
+# to Next.js; /api/* is proxied to the Go API in-process, so the session
+# cookie stays first-party and no CORS configuration is needed.
+#
+# Build (from the repo root; Render builds this from the Git repo):
+#   docker build -f Dockerfile.render -t growvence-ops .
+# Run (Render sets PORT; all other values come from the service env vars):
+#   docker run --env-file .env -e PORT=3000 -p 3000:3000 growvence-ops
+
+FROM golang:1.27-alpine AS go-build
+WORKDIR /src/backend
+COPY backend/go.mod backend/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY backend/ ./
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/opsctl ./cmd/opsctl
+
+FROM node:24-alpine AS node-deps
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+
+FROM node:24-alpine AS node-build
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+# Rewrites (/api/* -> Go API) are resolved at build time. The API runs in
+# this same container on :8080, so localhost is correct here.
+ARG API_INTERNAL_URL=http://localhost:8080
+ENV API_INTERNAL_URL=$API_INTERNAL_URL
+COPY --from=node-deps /app/node_modules ./node_modules
+COPY frontend/ ./
+RUN npm run build
+
+FROM node:24-alpine AS run
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0
+COPY --from=go-build /out/api /out/opsctl /usr/local/bin/
+COPY --from=node-build /app/.next/standalone ./
+COPY --from=node-build /app/.next/static ./.next/static
+COPY --from=node-build /app/public ./public
+COPY deploy/start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+EXPOSE 3000
+CMD ["/app/start.sh"]

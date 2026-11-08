@@ -112,6 +112,38 @@ func seedDev(ctx context.Context, st *store.Store) {
 	member3 := createUser(ctx, st, "member3@opsflow.local", "Omar Member", string(policy.Member), false, pw)
 	ceo := createUser(ctx, st, "ceo@opsflow.local", "Cara CEO", string(policy.CEO), false, pw)
 	hrUser := createUser(ctx, st, "hr@opsflow.local", "Hana HR", string(policy.HR), false, pw)
+	office := createUser(ctx, st, "office@opsflow.local", "Omi Office", string(policy.OfficeAdmin), false, pw)
+	// Two demo investors (Phase 3): linked logins, capital, and shares that
+	// add to 40% against the 10% default reserve.
+	inv1 := createUser(ctx, st, "investor1@opsflow.local", "Ira Investor", string(policy.Investor), false, pw)
+	inv2 := createUser(ctx, st, "investor2@opsflow.local", "Ivan Investor", string(policy.Investor), false, pw)
+	for _, seed := range []struct {
+		u      db.User
+		amount string
+		cur    string
+		rate   string
+		share  string
+	}{
+		{inv1, "500000", "BDT", "1", "25"},
+		{inv2, "2000", "USD", "120", "15"},
+	} {
+		var invID uuid.UUID
+		err := st.Pool.QueryRow(ctx, `
+			INSERT INTO investors (user_id, name, email, join_date)
+			VALUES ($1, $2, $3, CURRENT_DATE - 60) RETURNING id`,
+			seed.u.ID, seed.u.Name, seed.u.Email).Scan(&invID)
+		must(err)
+		_, err = st.Pool.Exec(ctx, `
+			INSERT INTO investments (investor_id, amount, currency, rate_to_bdt, method, invested_at, note, created_by)
+			VALUES ($1, $2::numeric, $3, $4::numeric, 'Bank Transfer', CURRENT_DATE - 60, 'Seed capital', $5)`,
+			invID, seed.amount, seed.cur, seed.rate, ceo.ID)
+		must(err)
+		_, err = st.Pool.Exec(ctx, `
+			INSERT INTO investor_shares (investor_id, share_percent, effective_from, created_by)
+			VALUES ($1, $2::numeric, CURRENT_DATE - 60, $3)`,
+			invID, seed.share, ceo.ID)
+		must(err)
+	}
 	for _, p := range [][2]string{{"Studio Main", "Fiverr"}, {"Studio Pro", "Upwork"}} {
 		_, err := st.CreateProfile(ctx, db.CreateProfileParams{Name: p[0], Platform: p[1]})
 		must(err)
@@ -128,7 +160,7 @@ func seedDev(ctx context.Context, st *store.Store) {
 		dept    string
 		manager *db.User
 	}{
-		{ceo, "", nil}, {hrUser, "HR", &ceo}, {sales, "Sales", &ceo},
+		{ceo, "", nil}, {hrUser, "HR", &ceo}, {office, "HR", &hrUser}, {sales, "Sales", &ceo},
 		{admin, "Operations", &ceo}, {tl, "Operations", &ceo},
 		{member, "Operations", &tl}, {member3, "Operations", &tl}, {member2, "Operations", &admin},
 	} {
@@ -155,7 +187,7 @@ func seedDev(ctx context.Context, st *store.Store) {
 		_, err := st.CreateProjectType(ctx, db.CreateProjectTypeParams{Name: t, TeamID: team})
 		must(err)
 	}
-	fmt.Println("seeded dev users (password: " + pw + "): admin@, sales@, tl@, member@, member2@, member3@, ceo@, hr@ opsflow.local")
+	fmt.Println("seeded dev users (password: " + pw + "): admin@, sales@, tl@, member@, member2@, member3@, ceo@, hr@, office@, investor1@, investor2@ opsflow.local")
 }
 
 // transferCEO hands the CEO role to another active user in one transaction.

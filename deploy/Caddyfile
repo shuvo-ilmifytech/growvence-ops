@@ -1,0 +1,83 @@
+# APP_SITE and FILES_SITE are full site addresses, so this one file serves both
+# the interim setup and the real hostname. Switching is an .env change:
+#
+#   interim, no DNS   APP_SITE=http://187.77.145.198
+#                     FILES_SITE=http://187.77.145.198:9443
+#   real hostname     APP_SITE=https://portal.growvence.com
+#                     FILES_SITE=https://files.portal.growvence.com
+#
+# With an https:// address Caddy obtains and renews a Let's Encrypt certificate
+# by itself and redirects http -> https. With http:// it serves plaintext and
+# touches no CA, so there are no failed ACME attempts against a name that does
+# not point here yet.
+#
+# To get expiry warnings once a real hostname is in use, add a global block
+# above this line containing:  { email you@growvence.com }
+
+{$APP_SITE} {
+	encode zstd gzip
+
+	# /api/* goes straight to the Go API rather than through Next's rewrite:
+	# one hop fewer, and the session cookie stays first-party (same origin, so
+	# SameSite=Lax works and no CORS is involved).
+	# AI assistants (MCP, Phase 14): the MCP endpoint, OAuth sign-in for connectors,
+	# and the discovery documents they start from. All served by the Go API.
+	@assistants path /mcp /oauth/* /.well-known/oauth-protected-resource* /.well-known/oauth-authorization-server* /.well-known/openid-configuration*
+	handle @assistants {
+		reverse_proxy api:8080
+	}
+
+	handle /api/* {
+		reverse_proxy api:8080 {
+			# The notification stream is text/event-stream, and WebRTC call
+			# signalling rides on it. -1 disables response buffering; without
+			# it messages, ringing and alerts arrive late or not at all.
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	# Only JSON and pages come through here (files go straight to storage on
+	# FILES_SITE), so this stays small.
+	request_body {
+		max_size 120MB
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+	}
+}
+
+# Object storage. Browsers PUT and GET files here through presigned URLs, so
+# this address must match S3_PUBLIC_ENDPOINT exactly: the signature covers the
+# Host header. Caddy's reverse_proxy passes Host through unchanged, which is
+# what makes that work. It is a separate address rather than a path on the app
+# because minio-go signs against a bare host[:port] and accepts no path prefix.
+{$FILES_SITE} {
+	reverse_proxy minio:9000 {
+		flush_interval -1
+	}
+	# MAX_UPLOAD_MB is 1024 (1 GB); a little headroom above it.
+	request_body {
+		max_size 1100MB
+	}
+}
+
+# Midul Computer storefront. Not part of OpsFlow: a Next.js app on the host,
+# run by the midul-computer systemd user service (next start -H 0.0.0.0 -p 3210).
+# 172.17.0.1 is the docker0 gateway, i.e. the host as seen from this container;
+# ufw allows 172.16.0.0/12 -> 3210 so only containers can reach it.
+stylecurvebd.com {
+	encode zstd gzip
+	reverse_proxy 172.17.0.1:3210
+}
+
+www.stylecurvebd.com {
+	redir https://stylecurvebd.com{uri} permanent
+}

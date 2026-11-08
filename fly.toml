@@ -1,0 +1,32 @@
+# Fly.io config for the Growvence Ops Go API.
+# Deploy from the REPO ROOT with:  fly deploy
+# (uses backend/Dockerfile; the API listens on :8080 — see API_ADDR default in
+# backend/internal/config/config.go, and the distroless image has no shell, so
+# Fly.io's fixed internal_port is used instead of a dynamic $PORT.)
+#
+# Secrets are NOT stored here — set them once with `fly secrets set`
+# (see ~/workspace/growvence-ops-hosting/fly-secrets-checklist.md).
+
+app = "growvence-ops-api"
+primary_region = "sin"   # Singapore — closest Fly region to Dhaka
+
+[build]
+  dockerfile = "backend/Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true    # scale to zero when idle (stays on free allowance)
+  auto_start_machines = true
+  min_machines_running = 0
+  # First request after idle takes ~10-30s to wake. Set min_machines_running = 1
+  # to avoid that (uses free allowance faster).
+  [http_service.checks]
+    grace_period = "45s"       # first boot runs DB migrations (AUTO_MIGRATE=true)
+    interval = "15s"
+    timeout = "10s"            # /healthz pings Postgres, Redis and R2
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

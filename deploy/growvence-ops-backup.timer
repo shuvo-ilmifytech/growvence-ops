@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Growvence Ops backup nightly
+
+[Timer]
+# 02:30 Asia/Dhaka (the server's timezone), with a little jitter.
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
