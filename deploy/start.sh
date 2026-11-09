@@ -5,6 +5,13 @@
 # standalone server in the foreground on $PORT (injected by Render).
 set -e
 
+# One-time boot seed (2026-11-09): the live Neon DB starts empty and Render's
+# Free plan has no Shell, so seed the login accounts here on first boot.
+# seed-dev refuses when users exist, so this is a no-op after the first boot.
+# REMOVE this block again once the accounts are verified (it must not stay in
+# the production image: a future empty DB would re-seed demo logins).
+/usr/local/bin/opsctl seed-dev || echo "growvence-ops: seed skipped (users may already exist)"
+
 # Derive the API port from API_ADDR for the health check (:8080 -> 8080).
 API_PORT=${API_ADDR##*:}
 [ -n "$API_PORT" ] || API_PORT=8080
